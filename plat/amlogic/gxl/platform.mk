@@ -23,6 +23,7 @@ GIC_SOURCES		:=	drivers/arm/gic/common/gic_common.c		\
 				plat/common/plat_gicv2.c
 
 BL31_SOURCES		+=	lib/cpus/aarch64/cortex_a53.S			\
+				common/desc_image_load.c				\
 				plat/common/plat_psci_common.c			\
 				drivers/amlogic/console/aarch64/meson_console.S	\
 				${AML_PLAT_SOC}/${PLAT}_bl31_setup.c		\

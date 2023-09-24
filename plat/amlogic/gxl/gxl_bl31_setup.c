@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <common/bl_common.h>
+#include <common/desc_image_load.h>
 #include <common/interrupt_props.h>
 #include <drivers/arm/gicv2.h>
 #include <lib/mmio.h>
@@ -19,6 +20,7 @@
  * Placeholder variables for copying the arguments that have been passed to
  * BL31 from BL2.
  */
+static entry_point_info_t bl32_image_ep_info;
 static entry_point_info_t bl33_image_ep_info;
 static image_info_t bl30_image_info;
 static image_info_t bl301_image_info;
@@ -33,9 +35,8 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(uint32_t type)
 {
 	entry_point_info_t *next_image_info;
 
-	assert(type == NON_SECURE);
-
-	next_image_info = &bl33_image_ep_info;
+	next_image_info = (type == NON_SECURE) ?
+			  &bl33_image_ep_info : &bl32_image_ep_info;
 
 	/* None of the images can have 0x0 as the entrypoint. */
 	if (next_image_info->pc != 0U) {
@@ -60,7 +61,7 @@ struct gxl_bl31_param {
 	image_info_t *bl32_image_info;
 	entry_point_info_t *bl33_ep_info;
 	image_info_t *bl33_image_info;
-	image_info_t *scp_image_info[];
+	image_info_t *scp_image_info[2];
 };
 
 void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
@@ -71,27 +72,20 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 	/* Initialize the console to provide early debug support */
 	aml_console_init();
 
-	/* Check that params passed from BL2 are not NULL. */
-	from_bl2 = (struct gxl_bl31_param *) arg0;
-
-	/* Check params passed from BL2 are not NULL. */
-	assert(from_bl2 != NULL);
-	assert(from_bl2->h.type == PARAM_BL31);
-	assert(from_bl2->h.version >= VERSION_1);
-
-	/*
-	 * Copy BL33 entry point information. It is stored in Secure RAM, in
-	 * BL2's address space.
-	 */
-	bl33_image_ep_info = *from_bl2->bl33_ep_info;
+	bl31_params_parse_helper(arg0, &bl32_image_ep_info,
+				 &bl33_image_ep_info);
 
 	if (bl33_image_ep_info.pc == 0U) {
 		ERROR("BL31: BL33 entrypoint not obtained from BL2\n");
 		panic();
 	}
 
-	bl30_image_info = *from_bl2->scp_image_info[0];
-	bl301_image_info = *from_bl2->scp_image_info[1];
+	/* FIXME: does this check even work ? */
+	from_bl2 = (struct gxl_bl31_param *) arg0;
+	if (from_bl2->h.size >= sizeof(*from_bl2)) {
+		bl30_image_info = *from_bl2->scp_image_info[0];
+		bl301_image_info = *from_bl2->scp_image_info[1];
+	}
 }
 
 void bl31_plat_arch_setup(void)
@@ -108,6 +102,9 @@ static inline bool gxl_scp_ready(void)
 
 static inline void gxl_scp_boot(void)
 {
+	if (!bl30_image_info.image_size)
+		return;
+
 	aml_scpi_upload_scp_fw(bl30_image_info.image_base,
 			       bl30_image_info.image_size, 0);
 	aml_scpi_upload_scp_fw(bl301_image_info.image_base,
